@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mina uppgifter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#EEF1EF; --surface:#FFFFFF; --surface-2:#F5F7F5;
+  --text:#1C2420; --text-muted:#5B6864; --border:#D8DED9;
+  --accent:#2F6F62; --accent-ink:#FFFFFF; --accent-2:#C98A2C;
+  --danger:#B3462C; --focus:#2F6F62;
+  --font-head:'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-body:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121815; --surface:#1B231F; --surface-2:#202A25;
+    --text:#E8EDE9; --text-muted:#9AA79F; --border:#2A332E;
+    --accent:#59B39E; --accent-ink:#0E1512; --accent-2:#E0A94A;
+    --danger:#E08769; --focus:#59B39E;
+  }
+}
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:var(--font-body); -webkit-font-smoothing:antialiased;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+button, input, select{ font-family:inherit; color:inherit; }
+:focus-visible{ outline:2px solid var(--focus); outline-offset:2px; }
+.wrap{ max-width:640px; margin:0 auto; padding:20px 18px 64px; }
+.top{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px; }
+.top h1{ font-family:var(--font-head); font-size:1.35rem; font-weight:700; margin:0; letter-spacing:-0.01em; }
+.top .range{ font-size:0.85rem; color:var(--text-muted); }
+.tabs{ display:flex; gap:6px; margin-bottom:18px; border-bottom:1px solid var(--border); }
+.tab{ background:none; border:none; padding:9px 4px; margin-right:14px; font-size:0.92rem; font-weight:500; color:var(--text-muted); cursor:pointer; border-bottom:2px solid transparent; position:relative; top:1px; }
+.tab[aria-selected="true"]{ color:var(--text); border-bottom-color:var(--accent); font-weight:600; }
+.days{ display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:20px; scrollbar-width:none; }
+.days::-webkit-scrollbar{ display:none; }
+.daypill{ flex:0 0 auto; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:9px 13px; cursor:pointer; text-align:center; min-width:58px; }
+.daypill .wd{ display:block; font-size:0.72rem; color:var(--text-muted); font-weight:500; }
+.daypill .num{ display:block; font-family:var(--font-head); font-size:1.05rem; font-weight:600; margin-top:1px; }
+.daypill[data-active="true"]{ border-color:var(--accent); background:var(--surface-2); }
+.daypill[data-active="true"] .wd{ color:var(--accent); }
+.daypill .dot{ display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--accent-2); margin-top:4px; visibility:hidden; }
+.daypill[data-pending="true"] .dot{ visibility:visible; }
+.section-heading{ font-family:var(--font-head); font-size:1.05rem; font-weight:600; margin:0 0 10px; }
+.tasklist{ list-style:none; margin:0 0 18px; padding:0; display:flex; flex-direction:column; gap:8px; }
+.task{ display:flex; align-items:flex-start; gap:11px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 12px; }
+.task input[type="checkbox"]{ width:19px; height:19px; margin-top:1px; accent-color:var(--accent); flex:0 0 auto; cursor:pointer; }
+.task .body{ flex:1 1 auto; min-width:0; }
+.task .title{ font-size:0.96rem; line-height:1.35; word-break:break-word; }
+.task.done .title{ color:var(--text-muted); text-decoration:line-through; }
+.task .meta{ margin-top:3px; font-size:0.74rem; color:var(--text-muted); }
+.task .meta .tag{ display:inline-block; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:1px 6px; margin-right:6px; }
+.task .del{ background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:1rem; line-height:1; flex:0 0 auto; }
+.task .del:hover{ color:var(--danger); }
+.empty{ color:var(--text-muted); font-size:0.9rem; padding:14px 2px 20px; }
+.upcoming-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 12px; margin-bottom:8px; }
+.upcoming-row .title{ font-size:0.94rem; }
+.upcoming-row .date{ font-size:0.78rem; color:var(--text-muted); white-space:nowrap; }
+.upcoming-row .del{ background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1rem; }
+.upcoming-row .del:hover{ color:var(--danger); }
+.addtoggle{ width:100%; text-align:left; background:var(--surface); border:1px dashed var(--border); border-radius:12px; padding:12px 14px; color:var(--text-muted); cursor:pointer; font-size:0.92rem; }
+.addtoggle:hover{ border-color:var(--accent); color:var(--text); }
+.addform{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px; }
+.addform label{ font-size:0.78rem; color:var(--text-muted); display:block; margin-bottom:4px; }
+.addform input[type="text"], .addform input[type="date"], .addform select{ width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); color:var(--text); font-size:0.94rem; }
+.addform .row{ display:flex; gap:10px; }
+.addform .row > div{ flex:1; }
+.addform .actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:2px; }
+.btn{ border:none; border-radius:8px; padding:9px 15px; font-size:0.9rem; font-weight:600; cursor:pointer; }
+.btn.primary{ background:var(--accent); color:var(--accent-ink); }
+.btn.ghost{ background:none; color:var(--text-muted); }
+.btn.ghost:hover{ color:var(--text); }
+.hint{ font-size:0.78rem; color:var(--text-muted); margin-top:2px; }
+.setup{ max-width:520px; margin:60px auto; padding:0 20px; font-size:0.95rem; line-height:1.5; }
+.setup code{ background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function(){
+  "use strict";
+
+  // ---- FYLL I DINA EGNA VÄRDEN HÄR (Supabase -> Settings -> API) ----
+  var SUPABASE_URL = "https://owqqimprqlqhauxbnndo.supabase.co";
+  var SUPABASE_ANON_KEY = "sb_publishable_hqLqpZkpNBxmULBwtE3I-A_4FHIspMn";
+  // ---------------------------------------------------------------
+
+  var app = document.getElementById('app');
+
+  if (SUPABASE_URL.indexOf('DITT-PROJEKT') !== -1) {
+    app.innerHTML = '<div class="setup"><h2>Nästan klart</h2><p>Öppna den här filen och ersätt <code>SUPABASE_URL</code> och <code>SUPABASE_ANON_KEY</code> högst upp i skriptet med värdena från ditt Supabase-projekt (Settings &rarr; API).</p></div>';
+    return;
+  }
+
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  var state = { tasks: [], doneMap: {} };
+  var view = 'vecka';
+  var addOpen = false;
+  var currentUser = null;
+
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function toISO(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+  function fromISO(iso){ var p = iso.split('-').map(Number); return new Date(p[0], p[1]-1, p[2]); }
+  function todayISO(){ return toISO(new Date()); }
+  function addDays(iso, n){ var d = fromISO(iso); d.setDate(d.getDate()+n); return toISO(d); }
+  function isWeekdayISO(iso){ var day = fromISO(iso).getDay(); return day >= 1 && day <= 5; }
+  function cmpISO(a,b){ return a < b ? -1 : (a > b ? 1 : 0); }
+  function daysBetween(aIso, bIso){ return Math.round((fromISO(bIso) - fromISO(aIso)) / 86400000); }
+  var INTERVALS = { every2: 2, every3: 3 };
+
+  var WINDOW_LEN = 7;
+  var weekDates = (function(){ var t = todayISO(), arr = []; for (var i=0;i<WINDOW_LEN;i++) arr.push(addDays(t,i)); return arr; })();
+  var lastWindowDate = weekDates[weekDates.length - 1];
+  var selectedDate = weekDates[0];
+
+  function recurrenceLabel(r){
+    if (r === 'daily') return 'Varje dag';
+    if (r === 'weekday') return 'Varje vardag';
+    if (r === 'every2') return 'Varannan dag';
+    if (r === 'every3') return 'Var tredje dag';
+    return 'En gång';
+  }
+
+  function tasksForDate(iso){
+    return state.tasks.filter(function(t){
+      if (t.recurrence === 'daily') return true;
+      if (t.recurrence === 'weekday') return isWeekdayISO(iso);
+      if (INTERVALS[t.recurrence]){
+        if (!t.date) return false;
+        var diff = daysBetween(t.date, iso);
+        return diff >= 0 && diff % INTERVALS[t.recurrence] === 0;
+      }
+      return t.date === iso;
+    });
+  }
+
+  function isDone(taskId, iso){ return !!state.doneMap[taskId + '|' + iso]; }
+  function pendingCountForDate(iso){
+    var list = tasksForDate(iso), n = 0;
+    for (var i=0;i<list.length;i++) if (!isDone(list[i].id, iso)) n++;
+    return n;
+  }
+  function upcomingBacklog(){
+    return state.tasks.filter(function(t){ return t.recurrence === 'once' && t.date > lastWindowDate; })
+      .sort(function(a,b){ return cmpISO(a.date, b.date); });
+  }
+
+  function el(tag, attrs, children){
+    var e = document.createElement(tag); attrs = attrs || {};
+    for (var k in attrs){
+      if (k === 'text') e.textContent = attrs[k];
+      else if (k.indexOf('on') === 0 && typeof attrs[k] === 'function') e.addEventListener(k.slice(2), attrs[k]);
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(function(c){ if (c) e.appendChild(c); });
+    return e;
+  }
+
+  async function rolloverOverdueTasks(){
+    var today = todayISO();
+    var overdue = state.tasks.filter(function(t){
+      return t.recurrence === 'once' && t.date && t.date < today && !isDone(t.id, t.date);
+    });
+    for (var i = 0; i < overdue.length; i++){
+      var t = overdue[i];
+      var res = await sb.from('tasks').update({ date: today }).eq('id', t.id);
+      if (!res.error) t.date = today;
+    }
+  }
+
+  async function loadState(){
+    var t = await sb.from('tasks').select('*').order('created_at');
+    var c = await sb.from('completions').select('*');
+    if (t.error || c.error){
+      app.innerHTML = '<div class="setup"><h2>Kunde inte hämta data</h2><p>' + ((t.error && t.error.message) || (c.error && c.error.message)) + '</p></div>';
+      return;
+    }
+    state.tasks = t.data.map(function(x){ return { id:x.id, title:x.title, recurrence:x.recurrence, date:x.date }; });
+    state.doneMap = {};
+    c.data.forEach(function(row){ state.doneMap[row.task_id + '|' + row.date] = true; });
+    await rolloverOverdueTasks();
+    render();
+  }
+
+  async function addTask(title, recurrence, date){
+    var res = await sb.from('tasks').insert({ title:title, recurrence:recurrence, date:date }).select().single();
+    if (res.error){ alert('Kunde inte lägga till uppgiften: ' + res.error.message); return; }
+    state.tasks.push({ id:res.data.id, title:res.data.title, recurrence:res.data.recurrence, date:res.data.date });
+    addOpen = false;
+    render();
+  }
+
+  async function deleteTask(id){
+    var res = await sb.from('tasks').delete().eq('id', id);
+    if (res.error){ alert('Kunde inte ta bort uppgiften: ' + res.error.message); return; }
+    state.tasks = state.tasks.filter(function(t){ return t.id !== id; });
+    Object.keys(state.doneMap).forEach(function(k){ if (k.indexOf(id + '|') === 0) delete state.doneMap[k]; });
+    render();
+  }
+
+  async function toggleTask(id, iso){
+    var key = id + '|' + iso;
+    if (state.doneMap[key]){
+      var res = await sb.from('completions').delete().eq('task_id', id).eq('date', iso);
+      if (res.error){ alert('Kunde inte spara: ' + res.error.message); return; }
+      delete state.doneMap[key];
+    } else {
+      var res2 = await sb.from('completions').insert({ task_id:id, date:iso });
+      if (res2.error){ alert('Kunde inte spara: ' + res2.error.message); return; }
+      state.doneMap[key] = true;
+    }
+    render();
+  }
+
+  function renderDayPills(container){
+    var row = el('div', { class:'days', role:'tablist' });
+    weekDates.forEach(function(iso){
+      var d = fromISO(iso), isToday = iso === todayISO();
+      var wd = isToday ? 'Idag' : d.toLocaleDateString('sv-SE', { weekday:'short' }).replace(/^./, function(c){ return c.toUpperCase(); });
+      var pill = el('button', {
+        class:'daypill', role:'tab', 'data-active': String(iso === selectedDate),
+        'data-pending': String(pendingCountForDate(iso) > 0), 'aria-selected': String(iso === selectedDate),
+        onclick: function(){ selectedDate = iso; render(); }
+      }, [ el('span',{class:'wd',text:wd}), el('span',{class:'num',text:String(d.getDate())}), el('span',{class:'dot'}) ]);
+      row.appendChild(pill);
+    });
+    container.appendChild(row);
+  }
+
+  function renderTaskRow(t, iso){
+    var done = isDone(t.id, iso);
+    var cb = el('input', { type:'checkbox', onchange:function(){ toggleTask(t.id, iso); } });
+    cb.checked = done;
+    var del = el('button', { class:'del', 'aria-label':'Ta bort uppgift', title:'Ta bort', onclick:function(){ deleteTask(t.id); } }, [document.createTextNode('✕')]);
+    return el('li', { class:'task' + (done ? ' done' : '') }, [
+      cb,
+      el('div', { class:'body' }, [ el('div',{class:'title',text:t.title}), el('div',{class:'meta'},[el('span',{class:'tag',text:recurrenceLabel(t.recurrence)})]) ]),
+      del
+    ]);
+  }
+
+  function renderAddBox(container, defaultDate){
+    if (!addOpen){
+      container.appendChild(el('button', { class:'addtoggle', onclick:function(){ addOpen = true; render(); } }, [document.createTextNode('+ Lägg till uppgift')]));
+      return;
+    }
+    var titleInput = el('input', { type:'text', placeholder:'t.ex. Handla mat', maxlength:'140' });
+    var recSelect = el('select', {}, [
+      el('option', { value:'once', text:'En gång' }),
+      el('option', { value:'daily', text:'Varje dag' }),
+      el('option', { value:'weekday', text:'Varje vardag' }),
+      el('option', { value:'every2', text:'Varannan dag' }),
+      el('option', { value:'every3', text:'Var tredje dag' })
+    ]);
+    var dateInput = el('input', { type:'date' });
+    dateInput.value = defaultDate || todayISO();
+    var dateLabel = el('label', { text:'Datum' });
+    var dateWrap = el('div', {}, [ dateLabel, dateInput ]);
+    function syncDateVisibility(){
+      var needsDate = recSelect.value === 'once' || !!INTERVALS[recSelect.value];
+      dateWrap.style.display = needsDate ? '' : 'none';
+      dateLabel.textContent = recSelect.value === 'once' ? 'Datum' : 'Startdatum';
+    }
+    recSelect.addEventListener('change', syncDateVisibility); syncDateVisibility();
+    var hint = el('div', { class:'hint', text:'Ett engångsdatum mer än en vecka fram hamnar under "Kommande" tills det närmar sig.' });
+    var form = el('div', { class:'addform' }, [
+      el('div', {}, [ el('label',{text:'Uppgift'}), titleInput ]),
+      el('div', { class:'row' }, [ el('div',{},[el('label',{text:'Upprepning'}),recSelect]), dateWrap ]),
+      hint,
+      el('div', { class:'actions' }, [
+        el('button', { class:'btn ghost', onclick:function(){ addOpen = false; render(); } }, [document.createTextNode('Avbryt')]),
+        el('button', { class:'btn primary', onclick:function(){
+          var title = titleInput.value.trim();
+          if (!title) { titleInput.focus(); return; }
+          var rec = recSelect.value;
+          var date = (rec === 'once' || INTERVALS[rec]) ? (dateInput.value || todayISO()) : null;
+          addTask(title, rec, date);
+        } }, [document.createTextNode('Lägg till')])
+      ])
+    ]);
+    container.appendChild(form);
+  }
+
+  function renderWeekView(root){
+    renderDayPills(root);
+    var d = fromISO(selectedDate);
+    var heading = d.toLocaleDateString('sv-SE', { weekday:'long', day:'numeric', month:'long' });
+    heading = heading.charAt(0).toUpperCase() + heading.slice(1);
+    root.appendChild(el('h2', { class:'section-heading', text:heading }));
+    var list = tasksForDate(selectedDate);
+    if (list.length === 0){
+      root.appendChild(el('div', { class:'empty', text:'Inga uppgifter den här dagen.' }));
+    } else {
+      var ul = el('ul', { class:'tasklist' });
+      list.forEach(function(t){ ul.appendChild(renderTaskRow(t, selectedDate)); });
+      root.appendChild(ul);
+    }
+    renderAddBox(root, selectedDate);
+  }
+
+  function renderUpcomingView(root){
+    root.appendChild(el('h2', { class:'section-heading', text:'Kommande (mer än en vecka fram)' }));
+    var list = upcomingBacklog();
+    if (list.length === 0){
+      root.appendChild(el('div', { class:'empty', text:'Inga kommande uppgifter längre fram just nu.' }));
+    } else {
+      list.forEach(function(t){
+        var d = fromISO(t.date);
+        var dateStr = d.toLocaleDateString('sv-SE', { day:'numeric', month:'short' });
+        root.appendChild(el('div', { class:'upcoming-row' }, [
+          el('div', {}, [ el('div',{class:'title',text:t.title}) ]),
+          el('div', {}, [ el('span',{class:'date',text:dateStr}), el('button',{class:'del','aria-label':'Ta bort',onclick:function(){ deleteTask(t.id); }},[document.createTextNode(' ✕')]) ])
+        ]));
+      });
+    }
+    root.appendChild(el('div', { class:'hint', text:'De dyker automatiskt upp under "Den här veckan" när datumet är inom sju dagar.' }));
+    var addRoot = el('div', {});
+    renderAddBox(addRoot, addDays(lastWindowDate, 1));
+    root.appendChild(addRoot);
+  }
+
+  function render(){
+    app.innerHTML = '';
+    var wrap = el('div', { class:'wrap' });
+    var rangeLabel = (function(){
+      var a = fromISO(weekDates[0]), b = fromISO(weekDates[weekDates.length-1]);
+      var fmt = function(d){ return d.toLocaleDateString('sv-SE', { day:'numeric', month:'short' }); };
+      return fmt(a) + '–' + fmt(b);
+    })();
+    wrap.appendChild(el('div', { class:'top' }, [
+      el('h1',{text:'Mina uppgifter'}),
+      el('div', { style:'display:flex;align-items:center;gap:10px;' }, [
+        el('div',{class:'range',text:rangeLabel}),
+        el('button', { class:'btn ghost', style:'padding:4px 8px;font-size:0.78rem;', onclick:function(){ sb.auth.signOut(); } }, [document.createTextNode('Logga ut')])
+      ])
+    ]));
+    var tabs = el('div', { class:'tabs' }, [
+      el('button', { class:'tab', 'aria-selected':String(view==='vecka'), onclick:function(){ view='vecka'; render(); } }, [document.createTextNode('Den här veckan')]),
+      el('button', { class:'tab', 'aria-selected':String(view==='kommande'), onclick:function(){ view='kommande'; render(); } }, [document.createTextNode('Kommande')])
+    ]);
+    wrap.appendChild(tabs);
+    if (view === 'vecka') renderWeekView(wrap); else renderUpcomingView(wrap);
+    app.appendChild(wrap);
+  }
+
+  function renderLogin(){
+    app.innerHTML = '';
+    var wrap = el('div', { class:'setup' });
+    wrap.appendChild(el('h2', { text:'Logga in' }));
+    var emailInput = el('input', { type:'email', placeholder:'E-post', style:'width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text);font-size:0.94rem;margin-bottom:8px;' });
+    var passInput = el('input', { type:'password', placeholder:'Lösenord', style:'width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text);font-size:0.94rem;margin-bottom:12px;' });
+    var errorBox = el('div', { style:'color:var(--danger);font-size:0.85rem;margin-bottom:8px;display:none;' });
+    var submitBtn = el('button', { class:'btn primary', onclick: async function(){
+      errorBox.style.display = 'none';
+      submitBtn.disabled = true;
+      var res = await sb.auth.signInWithPassword({ email: emailInput.value.trim(), password: passInput.value });
+      submitBtn.disabled = false;
+      if (res.error){ errorBox.textContent = 'Fel e-post eller lösenord.'; errorBox.style.display = 'block'; return; }
+    } }, [document.createTextNode('Logga in')]);
+    wrap.appendChild(emailInput);
+    wrap.appendChild(passInput);
+    wrap.appendChild(errorBox);
+    wrap.appendChild(submitBtn);
+    app.appendChild(wrap);
+  }
+
+  sb.auth.onAuthStateChange(function(event, session){
+    if (session && session.user){
+      currentUser = session.user;
+      app.innerHTML = '<div class="setup">Laddar…</div>';
+      loadState();
+    } else {
+      currentUser = null;
+      renderLogin();
+    }
+  });
+})();
+</script>
+</body>
+</html>
+
