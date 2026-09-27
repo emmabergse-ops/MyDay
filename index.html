@@ -366,7 +366,7 @@ button, input, select{ font-family:inherit; color:inherit; }
       submitBtn.disabled = true;
       var res = await sb.auth.signInWithPassword({ email: emailInput.value.trim(), password: passInput.value });
       submitBtn.disabled = false;
-      if (res.error){ errorBox.textContent = 'Fel e-post eller lösenord.'; errorBox.style.display = 'block'; return; }
+      if (res.error){ errorBox.textContent = res.error.message; errorBox.style.display = 'block'; return; }
     } }, [document.createTextNode('Logga in')]);
     wrap.appendChild(emailInput);
     wrap.appendChild(passInput);
