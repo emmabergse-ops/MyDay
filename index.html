@@ -98,15 +98,16 @@ button, input, select{ font-family:inherit; color:inherit; }
 
   var app = document.getElementById('app');
 
-  if (SUPABASE_URL.indexOf('DITT-PROJEKT') !== -1) {
+  if (SUPABASE_URL.indexOf('DITT-PROJEKT') !== -1 || SUPABASE_ANON_KEY.indexOf('DIN-ANON-KEY') !== -1) {
     app.innerHTML = '<div class="setup"><h2>Nästan klart</h2><p>Öppna den här filen och ersätt <code>SUPABASE_URL</code> och <code>SUPABASE_ANON_KEY</code> högst upp i skriptet med värdena från ditt Supabase-projekt (Settings &rarr; API).</p></div>';
     return;
   }
 
   var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  var state = { tasks: [], doneMap: {} };
+  var state = { tasks: [], doneMap: {}, birthdays: [] };
   var view = 'vecka';
   var addOpen = false;
+  var bAddOpen = false;
   var currentUser = null;
 
   function pad(n){ return String(n).padStart(2,'0'); }
@@ -143,6 +144,23 @@ button, input, select{ font-family:inherit; color:inherit; }
       }
       return t.date === iso;
     });
+  }
+
+  function isLeap(y){ return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
+  function occurrenceInYear(b, y){
+    var d = b.day;
+    if (b.month === 2 && d === 29 && !isLeap(y)) d = 28;
+    return y + '-' + pad(b.month) + '-' + pad(d);
+  }
+  function nextOccurrence(b){
+    var t = todayISO(), y = Number(t.slice(0,4));
+    var o = occurrenceInYear(b, y);
+    if (o < t) o = occurrenceInYear(b, y + 1);
+    return o;
+  }
+  function birthdaysForDate(iso){
+    var y = Number(iso.slice(0,4));
+    return state.birthdays.filter(function(b){ return occurrenceInYear(b, y) === iso; });
   }
 
   function isDone(taskId, iso){ return !!state.doneMap[taskId + '|' + iso]; }
@@ -182,10 +200,12 @@ button, input, select{ font-family:inherit; color:inherit; }
   async function loadState(){
     var t = await sb.from('tasks').select('*').order('created_at');
     var c = await sb.from('completions').select('*');
-    if (t.error || c.error){
-      app.innerHTML = '<div class="setup"><h2>Kunde inte hämta data</h2><p>' + ((t.error && t.error.message) || (c.error && c.error.message)) + '</p></div>';
+    var bd = await sb.from('birthdays').select('*').order('created_at');
+    if (t.error || c.error || bd.error){
+      app.innerHTML = '<div class="setup"><h2>Kunde inte hämta data</h2><p>' + ((t.error && t.error.message) || (c.error && c.error.message) || (bd.error && bd.error.message)) + '</p></div>';
       return;
     }
+    state.birthdays = bd.data.map(function(x){ return { id:x.id, name:x.name, month:x.month, day:x.day, year:x.birth_year }; });
     state.tasks = t.data.map(function(x){ return { id:x.id, title:x.title, recurrence:x.recurrence, date:x.date }; });
     state.doneMap = {};
     c.data.forEach(function(row){ state.doneMap[row.task_id + '|' + row.date] = true; });
@@ -198,6 +218,21 @@ button, input, select{ font-family:inherit; color:inherit; }
     if (res.error){ alert('Kunde inte lägga till uppgiften: ' + res.error.message); return; }
     state.tasks.push({ id:res.data.id, title:res.data.title, recurrence:res.data.recurrence, date:res.data.date });
     addOpen = false;
+    render();
+  }
+
+  async function addBirthday(name, day, month, year){
+    var res = await sb.from('birthdays').insert({ name:name, day:day, month:month, birth_year:year }).select().single();
+    if (res.error){ alert('Kunde inte spara födelsedagen: ' + res.error.message); return; }
+    state.birthdays.push({ id:res.data.id, name:res.data.name, month:res.data.month, day:res.data.day, year:res.data.birth_year });
+    bAddOpen = false;
+    render();
+  }
+
+  async function deleteBirthday(id){
+    var res = await sb.from('birthdays').delete().eq('id', id);
+    if (res.error){ alert('Kunde inte ta bort: ' + res.error.message); return; }
+    state.birthdays = state.birthdays.filter(function(b){ return b.id !== id; });
     render();
   }
 
@@ -230,7 +265,7 @@ button, input, select{ font-family:inherit; color:inherit; }
       var wd = isToday ? 'Idag' : d.toLocaleDateString('sv-SE', { weekday:'short' }).replace(/^./, function(c){ return c.toUpperCase(); });
       var pill = el('button', {
         class:'daypill', role:'tab', 'data-active': String(iso === selectedDate),
-        'data-pending': String(pendingCountForDate(iso) > 0), 'aria-selected': String(iso === selectedDate),
+        'data-pending': String(pendingCountForDate(iso) > 0 || birthdaysForDate(iso).length > 0), 'aria-selected': String(iso === selectedDate),
         onclick: function(){ selectedDate = iso; render(); }
       }, [ el('span',{class:'wd',text:wd}), el('span',{class:'num',text:String(d.getDate())}), el('span',{class:'dot'}) ]);
       row.appendChild(pill);
@@ -248,6 +283,73 @@ button, input, select{ font-family:inherit; color:inherit; }
       el('div', { class:'body' }, [ el('div',{class:'title',text:t.title}), el('div',{class:'meta'},[el('span',{class:'tag',text:recurrenceLabel(t.recurrence)})]) ]),
       del
     ]);
+  }
+
+  function renderBirthdayRow(b, iso){
+    var age = b.year ? Number(iso.slice(0,4)) - b.year : null;
+    var text = age !== null ? (b.name + ' fyller ' + age) : (b.name + ' har födelsedag');
+    return el('li', { class:'task' }, [
+      el('span', { style:'font-size:1.15rem;line-height:1.2;', text:'🎂' }),
+      el('div', { class:'body' }, [
+        el('div', { class:'title', text:text }),
+        el('div', { class:'meta' }, [ el('span', { class:'tag', text:'Födelsedag' }) ])
+      ])
+    ]);
+  }
+
+  var MONTHS = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+
+  function renderBirthdaysView(root){
+    root.appendChild(el('h2', { class:'section-heading', text:'Födelsedagar' }));
+    var list = state.birthdays.slice().sort(function(a,b){ return cmpISO(nextOccurrence(a), nextOccurrence(b)); });
+    if (list.length === 0){
+      root.appendChild(el('div', { class:'empty', text:'Inga födelsedagar tillagda än.' }));
+    } else {
+      list.forEach(function(b){
+        var occ = nextOccurrence(b);
+        var sub = b.day + ' ' + MONTHS[b.month - 1];
+        if (b.year) sub += ' · fyller ' + (Number(occ.slice(0,4)) - b.year);
+        var d = fromISO(occ);
+        var days = daysBetween(todayISO(), occ);
+        var when = days === 0 ? 'idag' : (days === 1 ? 'imorgon' : 'om ' + days + ' dagar');
+        root.appendChild(el('div', { class:'upcoming-row' }, [
+          el('div', {}, [ el('div', { class:'title', text:'🎂 ' + b.name }), el('div', { class:'hint', text:sub + ' · ' + when }) ]),
+          el('button', { class:'del', 'aria-label':'Ta bort', onclick:function(){ deleteBirthday(b.id); } }, [document.createTextNode('✕')])
+        ]));
+      });
+    }
+    root.appendChild(el('div', { class:'hint', text:'Födelsedagar dyker upp i dagens lista och återkommer automatiskt varje år.' }));
+
+    var box = el('div', { style:'margin-top:10px;' });
+    if (!bAddOpen){
+      box.appendChild(el('button', { class:'addtoggle', onclick:function(){ bAddOpen = true; render(); } }, [document.createTextNode('+ Lägg till födelsedag')]));
+    } else {
+      var nameInput = el('input', { type:'text', placeholder:'Namn', maxlength:'80' });
+      var dayInput = el('input', { type:'number', min:'1', max:'31', placeholder:'Dag' });
+      var monthSel = el('select', {}, MONTHS.map(function(m, i){ return el('option', { value:String(i+1), text:m }); }));
+      var yearInput = el('input', { type:'number', min:'1900', max:'2100', placeholder:'t.ex. 1990' });
+      box.appendChild(el('div', { class:'addform' }, [
+        el('div', {}, [ el('label', { text:'Namn' }), nameInput ]),
+        el('div', { class:'row' }, [
+          el('div', {}, [ el('label', { text:'Dag' }), dayInput ]),
+          el('div', {}, [ el('label', { text:'Månad' }), monthSel ])
+        ]),
+        el('div', {}, [ el('label', { text:'Födelseår (valfritt, för att visa ålder)' }), yearInput ]),
+        el('div', { class:'actions' }, [
+          el('button', { class:'btn ghost', onclick:function(){ bAddOpen = false; render(); } }, [document.createTextNode('Avbryt')]),
+          el('button', { class:'btn primary', onclick:function(){
+            var name = nameInput.value.trim();
+            var day = parseInt(dayInput.value, 10);
+            var month = parseInt(monthSel.value, 10);
+            var year = yearInput.value ? parseInt(yearInput.value, 10) : null;
+            if (!name){ nameInput.focus(); return; }
+            if (!day || day < 1 || day > 31){ dayInput.focus(); return; }
+            addBirthday(name, day, month, year);
+          } }, [document.createTextNode('Lägg till')])
+        ])
+      ]));
+    }
+    root.appendChild(box);
   }
 
   function renderAddBox(container, defaultDate){
@@ -299,10 +401,12 @@ button, input, select{ font-family:inherit; color:inherit; }
     heading = heading.charAt(0).toUpperCase() + heading.slice(1);
     root.appendChild(el('h2', { class:'section-heading', text:heading }));
     var list = tasksForDate(selectedDate);
-    if (list.length === 0){
+    var bdays = birthdaysForDate(selectedDate);
+    if (list.length === 0 && bdays.length === 0){
       root.appendChild(el('div', { class:'empty', text:'Inga uppgifter den här dagen.' }));
     } else {
       var ul = el('ul', { class:'tasklist' });
+      bdays.forEach(function(b){ ul.appendChild(renderBirthdayRow(b, selectedDate)); });
       list.forEach(function(t){ ul.appendChild(renderTaskRow(t, selectedDate)); });
       root.appendChild(ul);
     }
@@ -347,10 +451,13 @@ button, input, select{ font-family:inherit; color:inherit; }
     ]));
     var tabs = el('div', { class:'tabs' }, [
       el('button', { class:'tab', 'aria-selected':String(view==='vecka'), onclick:function(){ view='vecka'; render(); } }, [document.createTextNode('Den här veckan')]),
-      el('button', { class:'tab', 'aria-selected':String(view==='kommande'), onclick:function(){ view='kommande'; render(); } }, [document.createTextNode('Kommande')])
+      el('button', { class:'tab', 'aria-selected':String(view==='kommande'), onclick:function(){ view='kommande'; render(); } }, [document.createTextNode('Kommande')]),
+      el('button', { class:'tab', 'aria-selected':String(view==='fodelsedagar'), onclick:function(){ view='fodelsedagar'; render(); } }, [document.createTextNode('Födelsedagar')])
     ]);
     wrap.appendChild(tabs);
-    if (view === 'vecka') renderWeekView(wrap); else renderUpcomingView(wrap);
+    if (view === 'vecka') renderWeekView(wrap);
+    else if (view === 'kommande') renderUpcomingView(wrap);
+    else renderBirthdaysView(wrap);
     app.appendChild(wrap);
   }
 
@@ -389,4 +496,3 @@ button, input, select{ font-family:inherit; color:inherit; }
 </script>
 </body>
 </html>
-
