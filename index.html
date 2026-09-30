@@ -219,7 +219,7 @@ button, input, select{ font-family:inherit; color:inherit; }
       if (!res.error) t.date = today;
     }
   }
-  }
+  
 
   async function loadState(){
     var t = await sb.from('tasks').select('*').order('created_at');
