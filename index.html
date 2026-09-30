@@ -186,16 +186,39 @@ button, input, select{ font-family:inherit; color:inherit; }
     return e;
   }
 
+  // Senaste förfallodag (<= idag) för en intervall-uppgift (t.ex. var tredje dag).
+  function lastDueDateOnOrBefore(t, today){
+    if (!t.date) return null;
+    var diff = daysBetween(t.date, today);
+    if (diff < 0) return null;
+    var interval = INTERVALS[t.recurrence];
+    var mod = diff % interval;
+    return addDays(today, -mod);
+  }
+
+  // Uppgiftstyper som ska flyttas fram om de inte bockas av (utöver "En gång").
+  // "Varje dag"/"Varje vardag" flyttas INTE -- de kan bara försvinna om de missas.
+  var ROLLOVER_INTERVALS = { every3: true };
+
   async function rolloverOverdueTasks(){
     var today = todayISO();
-    var overdue = state.tasks.filter(function(t){
-      return t.recurrence === 'once' && t.date && t.date < today && !isDone(t.id, t.date);
+    var toBump = [];
+    state.tasks.forEach(function(t){
+      if (t.recurrence === 'once'){
+        if (t.date && t.date < today && !isDone(t.id, t.date)) toBump.push(t);
+        return;
+      }
+      if (ROLLOVER_INTERVALS[t.recurrence]){
+        var lastDue = lastDueDateOnOrBefore(t, today);
+        if (lastDue && lastDue < today && !isDone(t.id, lastDue)) toBump.push(t);
+      }
     });
-    for (var i = 0; i < overdue.length; i++){
-      var t = overdue[i];
+    for (var i = 0; i < toBump.length; i++){
+      var t = toBump[i];
       var res = await sb.from('tasks').update({ date: today }).eq('id', t.id);
       if (!res.error) t.date = today;
     }
+  }
   }
 
   async function loadState(){
