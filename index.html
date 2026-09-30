@@ -297,10 +297,10 @@ button, input, select{ font-family:inherit; color:inherit; }
       if (res2.error){ alert('Kunde inte spara: ' + res2.error.message); return; }
       state.doneMap[key] = true;
     }
-    render();
+    ();
   }
 
-  function renderDayPills(container){
+  function DayPills(container){
     var row = el('div', { class:'days', role:'tablist' });
     weekDates.forEach(function(iso){
       var d = fromISO(iso), isToday = iso === todayISO();
@@ -308,14 +308,14 @@ button, input, select{ font-family:inherit; color:inherit; }
       var pill = el('button', {
         class:'daypill', role:'tab', 'data-active': String(iso === selectedDate),
         'data-pending': String(pendingCountForDate(iso) > 0 || birthdaysForDate(iso).length > 0), 'aria-selected': String(iso === selectedDate),
-        onclick: function(){ selectedDate = iso; render(); }
+        onclick: function(){ selectedDate = iso; (); }
       }, [ el('span',{class:'wd',text:wd}), el('span',{class:'num',text:String(d.getDate())}), el('span',{class:'dot'}) ]);
       row.appendChild(pill);
     });
     container.appendChild(row);
   }
 
-  function renderTaskRow(t, iso){
+  function TaskRow(t, iso){
     var done = isDone(t.id, iso);
     var cb = el('input', { type:'checkbox', onchange:function(){ toggleTask(t.id, iso); } });
     cb.checked = done;
@@ -330,7 +330,7 @@ button, input, select{ font-family:inherit; color:inherit; }
   function renderBirthdayRow(b, iso){
     var done = isBirthdayDone(b.id, iso);
     var age = b.year ? Number(iso.slice(0,4)) - b.year : null;
-    var text = (age !== null ? (b.name + ' fyller ' + age) : (b.name + ' har födelsedag')) + ' 🎂';
+        var text = (age !== null ? (b.name + ' fyller ' + age + ' år') : (b.name + ' har födelsedag')) + ' 🎂';
     var cb = el('input', { type:'checkbox', onchange:function(){ toggleBirthday(b.id, iso); } });
     cb.checked = done;
     return el('li', { class:'task' + (done ? ' done' : '') }, [
@@ -353,7 +353,7 @@ button, input, select{ font-family:inherit; color:inherit; }
       list.forEach(function(b){
         var occ = nextOccurrence(b);
         var sub = b.day + ' ' + MONTHS[b.month - 1];
-        if (b.year) sub += ' · fyller ' + (Number(occ.slice(0,4)) - b.year);
+        if (b.year) sub += ' · fyller ' + (Number(occ.slice(0,4)) - b.year) + ' år';
         var d = fromISO(occ);
         var days = daysBetween(todayISO(), occ);
         var when = days === 0 ? 'idag' : (days === 1 ? 'imorgon' : 'om ' + days + ' dagar');
