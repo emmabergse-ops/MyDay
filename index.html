@@ -93,7 +93,7 @@ button, input, select{ font-family:inherit; color:inherit; }
 
   // ---- FYLL I DINA EGNA VÄRDEN HÄR (Supabase -> Settings -> API) ----
   var SUPABASE_URL = "https://votociadjewygpephlrt.supabase.co";
-  var SUPABASE_ANON_KEY = "sb_publishable_hqLqpZkpNBxmULBwtE3I-A_4FHIspMn";
+  var SUPABASE_ANON_KEY = "DIN-ANON-KEY";
   // ---------------------------------------------------------------
 
   var app = document.getElementById('app');
@@ -104,7 +104,7 @@ button, input, select{ font-family:inherit; color:inherit; }
   }
 
   var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  var state = { tasks: [], doneMap: {}, birthdays: [] };
+  var state = { tasks: [], doneMap: {}, birthdays: [], birthdayDoneMap: {} };
   var view = 'vecka';
   var addOpen = false;
   var bAddOpen = false;
@@ -164,6 +164,7 @@ button, input, select{ font-family:inherit; color:inherit; }
   }
 
   function isDone(taskId, iso){ return !!state.doneMap[taskId + '|' + iso]; }
+  function isBirthdayDone(id, iso){ return !!state.birthdayDoneMap[id + '|' + iso]; }
   function pendingCountForDate(iso){
     var list = tasksForDate(iso), n = 0;
     for (var i=0;i<list.length;i++) if (!isDone(list[i].id, iso)) n++;
@@ -201,11 +202,14 @@ button, input, select{ font-family:inherit; color:inherit; }
     var t = await sb.from('tasks').select('*').order('created_at');
     var c = await sb.from('completions').select('*');
     var bd = await sb.from('birthdays').select('*').order('created_at');
-    if (t.error || c.error || bd.error){
-      app.innerHTML = '<div class="setup"><h2>Kunde inte hämta data</h2><p>' + ((t.error && t.error.message) || (c.error && c.error.message) || (bd.error && bd.error.message)) + '</p></div>';
+    var bc = await sb.from('birthday_completions').select('*');
+    if (t.error || c.error || bd.error || bc.error){
+      app.innerHTML = '<div class="setup"><h2>Kunde inte hämta data</h2><p>' + ((t.error && t.error.message) || (c.error && c.error.message) || (bd.error && bd.error.message) || (bc.error && bc.error.message)) + '</p></div>';
       return;
     }
     state.birthdays = bd.data.map(function(x){ return { id:x.id, name:x.name, month:x.month, day:x.day, year:x.birth_year }; });
+    state.birthdayDoneMap = {};
+    bc.data.forEach(function(row){ state.birthdayDoneMap[row.birthday_id + '|' + row.date] = true; });
     state.tasks = t.data.map(function(x){ return { id:x.id, title:x.title, recurrence:x.recurrence, date:x.date }; });
     state.doneMap = {};
     c.data.forEach(function(row){ state.doneMap[row.task_id + '|' + row.date] = true; });
@@ -233,6 +237,21 @@ button, input, select{ font-family:inherit; color:inherit; }
     var res = await sb.from('birthdays').delete().eq('id', id);
     if (res.error){ alert('Kunde inte ta bort: ' + res.error.message); return; }
     state.birthdays = state.birthdays.filter(function(b){ return b.id !== id; });
+    Object.keys(state.birthdayDoneMap).forEach(function(k){ if (k.indexOf(id + '|') === 0) delete state.birthdayDoneMap[k]; });
+    render();
+  }
+
+  async function toggleBirthday(id, iso){
+    var key = id + '|' + iso;
+    if (state.birthdayDoneMap[key]){
+      var res = await sb.from('birthday_completions').delete().eq('birthday_id', id).eq('date', iso);
+      if (res.error){ alert('Kunde inte spara: ' + res.error.message); return; }
+      delete state.birthdayDoneMap[key];
+    } else {
+      var res2 = await sb.from('birthday_completions').insert({ birthday_id:id, date:iso });
+      if (res2.error){ alert('Kunde inte spara: ' + res2.error.message); return; }
+      state.birthdayDoneMap[key] = true;
+    }
     render();
   }
 
@@ -286,10 +305,13 @@ button, input, select{ font-family:inherit; color:inherit; }
   }
 
   function renderBirthdayRow(b, iso){
+    var done = isBirthdayDone(b.id, iso);
     var age = b.year ? Number(iso.slice(0,4)) - b.year : null;
-    var text = age !== null ? (b.name + ' fyller ' + age) : (b.name + ' har födelsedag');
-    return el('li', { class:'task' }, [
-      el('span', { style:'font-size:1.15rem;line-height:1.2;', text:'🎂' }),
+    var text = (age !== null ? (b.name + ' fyller ' + age) : (b.name + ' har födelsedag')) + ' 🎂';
+    var cb = el('input', { type:'checkbox', onchange:function(){ toggleBirthday(b.id, iso); } });
+    cb.checked = done;
+    return el('li', { class:'task' + (done ? ' done' : '') }, [
+      cb,
       el('div', { class:'body' }, [
         el('div', { class:'title', text:text }),
         el('div', { class:'meta' }, [ el('span', { class:'tag', text:'Födelsedag' }) ])
