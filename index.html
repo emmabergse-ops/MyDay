@@ -62,6 +62,10 @@ button, input, select{ font-family:inherit; color:inherit; }
 .task .meta .tag{ display:inline-block; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:1px 6px; margin-right:6px; }
 .task .del{ background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:1rem; line-height:1; flex:0 0 auto; }
 .task .del:hover{ color:var(--danger); }
+.task .edit, .upcoming-row .edit{ background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:1rem; line-height:1; flex:0 0 auto; }
+.task .edit:hover, .upcoming-row .edit:hover{ color:var(--accent); }
+.rowbtns{ display:flex; align-items:center; flex:0 0 auto; }
+.task.editing{ display:block; padding:0; border:none; background:none; }
 .empty{ color:var(--text-muted); font-size:0.9rem; padding:14px 2px 20px; }
 .upcoming-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 12px; margin-bottom:8px; }
 .upcoming-row .title{ font-size:0.94rem; }
@@ -108,6 +112,7 @@ button, input, select{ font-family:inherit; color:inherit; }
   var view = 'vecka';
   var addOpen = false;
   var bAddOpen = false;
+  var editing = null; // { kind:'task'|'birthday', id:... }
   var currentUser = null;
 
   function pad(n){ return String(n).padStart(2,'0'); }
@@ -255,6 +260,26 @@ button, input, select{ font-family:inherit; color:inherit; }
     render();
   }
 
+  async function updateTask(id, title, recurrence, date){
+    var res = await sb.from('tasks').update({ title:title, recurrence:recurrence, date:date }).eq('id', id);
+    if (res.error){ alert('Kunde inte spara ändringen: ' + res.error.message); return; }
+    state.tasks.forEach(function(t){
+      if (t.id === id){ t.title = title; t.recurrence = recurrence; t.date = date; }
+    });
+    editing = null;
+    render();
+  }
+
+  async function updateBirthday(id, name, day, month, year){
+    var res = await sb.from('birthdays').update({ name:name, day:day, month:month, birth_year:year }).eq('id', id);
+    if (res.error){ alert('Kunde inte spara ändringen: ' + res.error.message); return; }
+    state.birthdays.forEach(function(b){
+      if (b.id === id){ b.name = name; b.day = day; b.month = month; b.year = year; }
+    });
+    editing = null;
+    render();
+  }
+
   async function deleteBirthday(id){
     var res = await sb.from('birthdays').delete().eq('id', id);
     if (res.error){ alert('Kunde inte ta bort: ' + res.error.message); return; }
@@ -307,14 +332,92 @@ button, input, select{ font-family:inherit; color:inherit; }
       var pill = el('button', {
         class:'daypill', role:'tab', 'data-active': String(iso === selectedDate),
         'data-pending': String(pendingCountForDate(iso) > 0 || birthdaysForDate(iso).length > 0), 'aria-selected': String(iso === selectedDate),
-        onclick: function(){ selectedDate = iso; render(); }
+        onclick: function(){ selectedDate = iso; editing = null; render(); }
       }, [ el('span',{class:'wd',text:wd}), el('span',{class:'num',text:String(d.getDate())}), el('span',{class:'dot'}) ]);
       row.appendChild(pill);
     });
     container.appendChild(row);
   }
 
+  function isEditing(kind, id){ return !!editing && editing.kind === kind && editing.id === id; }
+
+  function renderTaskEditForm(t){
+    var titleInput = el('input', { type:'text', maxlength:'140' });
+    titleInput.value = t.title;
+    var recSelect = el('select', {}, [
+      el('option', { value:'once', text:'En gång' }),
+      el('option', { value:'daily', text:'Varje dag' }),
+      el('option', { value:'weekday', text:'Varje vardag' }),
+      el('option', { value:'every2', text:'Varannan dag' }),
+      el('option', { value:'every3', text:'Var tredje dag' })
+    ]);
+    recSelect.value = t.recurrence;
+    var dateInput = el('input', { type:'date' });
+    dateInput.value = t.date || todayISO();
+    var dateLabel = el('label', { text:'Datum' });
+    var dateWrap = el('div', {}, [ dateLabel, dateInput ]);
+    function syncDateVisibility(){
+      var needsDate = recSelect.value === 'once' || !!INTERVALS[recSelect.value];
+      dateWrap.style.display = needsDate ? '' : 'none';
+      dateLabel.textContent = recSelect.value === 'once' ? 'Datum' : 'Startdatum';
+    }
+    recSelect.addEventListener('change', syncDateVisibility); syncDateVisibility();
+    return el('div', { class:'addform' }, [
+      el('div', {}, [ el('label', { text:'Uppgift' }), titleInput ]),
+      el('div', { class:'row' }, [ el('div', {}, [ el('label', { text:'Upprepning' }), recSelect ]), dateWrap ]),
+      el('div', { class:'hint', text:'Ändringarna gäller hela uppgiften, inte bara den här dagen.' }),
+      el('div', { class:'actions' }, [
+        el('button', { class:'btn ghost', onclick:function(){ editing = null; render(); } }, [document.createTextNode('Avbryt')]),
+        el('button', { class:'btn primary', onclick:function(){
+          var title = titleInput.value.trim();
+          if (!title){ titleInput.focus(); return; }
+          var rec = recSelect.value;
+          var date = (rec === 'once' || INTERVALS[rec]) ? (dateInput.value || todayISO()) : null;
+          updateTask(t.id, title, rec, date);
+        } }, [document.createTextNode('Spara')])
+      ])
+    ]);
+  }
+
+  function renderBirthdayEditForm(b){
+    var nameInput = el('input', { type:'text', maxlength:'80' });
+    nameInput.value = b.name;
+    var dayInput = el('input', { type:'number', min:'1', max:'31' });
+    dayInput.value = String(b.day);
+    var monthSel = el('select', {}, MONTHS.map(function(m, i){ return el('option', { value:String(i+1), text:m }); }));
+    monthSel.value = String(b.month);
+    var yearInput = el('input', { type:'number', min:'1900', max:'2100', placeholder:'t.ex. 1990' });
+    yearInput.value = b.year ? String(b.year) : '';
+    return el('div', { class:'addform' }, [
+      el('div', {}, [ el('label', { text:'Namn' }), nameInput ]),
+      el('div', { class:'row' }, [
+        el('div', {}, [ el('label', { text:'Dag' }), dayInput ]),
+        el('div', {}, [ el('label', { text:'Månad' }), monthSel ])
+      ]),
+      el('div', {}, [ el('label', { text:'Födelseår (valfritt, för att visa ålder)' }), yearInput ]),
+      el('div', { class:'actions' }, [
+        el('button', { class:'btn ghost', onclick:function(){ editing = null; render(); } }, [document.createTextNode('Avbryt')]),
+        el('button', { class:'btn primary', onclick:function(){
+          var name = nameInput.value.trim();
+          var day = parseInt(dayInput.value, 10);
+          var month = parseInt(monthSel.value, 10);
+          var year = yearInput.value ? parseInt(yearInput.value, 10) : null;
+          if (!name){ nameInput.focus(); return; }
+          if (!day || day < 1 || day > 31){ dayInput.focus(); return; }
+          updateBirthday(b.id, name, day, month, year);
+        } }, [document.createTextNode('Spara')])
+      ])
+    ]);
+  }
+
+  function editButton(kind, id){
+    return el('button', { class:'edit', 'aria-label':'Ändra', title:'Ändra', onclick:function(){
+      editing = { kind:kind, id:id }; render();
+    } }, [document.createTextNode('✎')]);
+  }
+
   function renderTaskRow(t, iso){
+    if (isEditing('task', t.id)) return el('li', { class:'task editing' }, [ renderTaskEditForm(t) ]);
     var done = isDone(t.id, iso);
     var cb = el('input', { type:'checkbox', onchange:function(){ toggleTask(t.id, iso); } });
     cb.checked = done;
@@ -322,11 +425,12 @@ button, input, select{ font-family:inherit; color:inherit; }
     return el('li', { class:'task' + (done ? ' done' : '') }, [
       cb,
       el('div', { class:'body' }, [ el('div',{class:'title',text:t.title}), el('div',{class:'meta'},[el('span',{class:'tag',text:recurrenceLabel(t.recurrence)})]) ]),
-      del
+      el('div', { class:'rowbtns' }, [ editButton('task', t.id), del ])
     ]);
   }
 
   function renderBirthdayRow(b, iso){
+    if (isEditing('birthday', b.id)) return el('li', { class:'task editing' }, [ renderBirthdayEditForm(b) ]);
     var done = isBirthdayDone(b.id, iso);
     var age = b.year ? Number(iso.slice(0,4)) - b.year : null;
     var text = (age !== null ? (b.name + ' fyller ' + age + ' år') : (b.name + ' har födelsedag')) + ' 🎂';
@@ -337,7 +441,8 @@ button, input, select{ font-family:inherit; color:inherit; }
       el('div', { class:'body' }, [
         el('div', { class:'title', text:text }),
         el('div', { class:'meta' }, [ el('span', { class:'tag', text:'Födelsedag' }) ])
-      ])
+      ]),
+      el('div', { class:'rowbtns' }, [ editButton('birthday', b.id) ])
     ]);
   }
 
@@ -356,9 +461,16 @@ button, input, select{ font-family:inherit; color:inherit; }
         var d = fromISO(occ);
         var days = daysBetween(todayISO(), occ);
         var when = days === 0 ? 'idag' : (days === 1 ? 'imorgon' : 'om ' + days + ' dagar');
+        if (isEditing('birthday', b.id)){
+          root.appendChild(el('div', { style:'margin-bottom:8px;' }, [ renderBirthdayEditForm(b) ]));
+          return;
+        }
         root.appendChild(el('div', { class:'upcoming-row' }, [
           el('div', {}, [ el('div', { class:'title', text:'🎂 ' + b.name }), el('div', { class:'hint', text:sub + ' · ' + when }) ]),
-          el('button', { class:'del', 'aria-label':'Ta bort', onclick:function(){ deleteBirthday(b.id); } }, [document.createTextNode('✕')])
+          el('div', { class:'rowbtns' }, [
+            editButton('birthday', b.id),
+            el('button', { class:'del', 'aria-label':'Ta bort', onclick:function(){ deleteBirthday(b.id); } }, [document.createTextNode('✕')])
+          ])
         ]));
       });
     }
@@ -464,11 +576,19 @@ button, input, select{ font-family:inherit; color:inherit; }
       root.appendChild(el('div', { class:'empty', text:'Inga kommande uppgifter längre fram just nu.' }));
     } else {
       list.forEach(function(t){
+        if (isEditing('task', t.id)){
+          root.appendChild(el('div', { style:'margin-bottom:8px;' }, [ renderTaskEditForm(t) ]));
+          return;
+        }
         var d = fromISO(t.date);
         var dateStr = d.toLocaleDateString('sv-SE', { day:'numeric', month:'short' });
         root.appendChild(el('div', { class:'upcoming-row' }, [
           el('div', {}, [ el('div',{class:'title',text:t.title}) ]),
-          el('div', {}, [ el('span',{class:'date',text:dateStr}), el('button',{class:'del','aria-label':'Ta bort',onclick:function(){ deleteTask(t.id); }},[document.createTextNode(' ✕')]) ])
+          el('div', { class:'rowbtns' }, [
+            el('span',{class:'date',text:dateStr}),
+            editButton('task', t.id),
+            el('button',{class:'del','aria-label':'Ta bort',onclick:function(){ deleteTask(t.id); }},[document.createTextNode('✕')])
+          ])
         ]));
       });
     }
@@ -494,9 +614,9 @@ button, input, select{ font-family:inherit; color:inherit; }
       ])
     ]));
     var tabs = el('div', { class:'tabs' }, [
-      el('button', { class:'tab', 'aria-selected':String(view==='vecka'), onclick:function(){ view='vecka'; render(); } }, [document.createTextNode('Den här veckan')]),
-      el('button', { class:'tab', 'aria-selected':String(view==='kommande'), onclick:function(){ view='kommande'; render(); } }, [document.createTextNode('Kommande')]),
-      el('button', { class:'tab', 'aria-selected':String(view==='fodelsedagar'), onclick:function(){ view='fodelsedagar'; render(); } }, [document.createTextNode('Födelsedagar')])
+      el('button', { class:'tab', 'aria-selected':String(view==='vecka'), onclick:function(){ view='vecka'; editing = null; render(); } }, [document.createTextNode('Den här veckan')]),
+      el('button', { class:'tab', 'aria-selected':String(view==='kommande'), onclick:function(){ view='kommande'; editing = null; render(); } }, [document.createTextNode('Kommande')]),
+      el('button', { class:'tab', 'aria-selected':String(view==='fodelsedagar'), onclick:function(){ view='fodelsedagar'; editing = null; render(); } }, [document.createTextNode('Födelsedagar')])
     ]);
     wrap.appendChild(tabs);
     if (view === 'vecka') renderWeekView(wrap);
