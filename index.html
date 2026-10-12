@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mina uppgifter</title>
-  <link rel="apple-touch-icon" href="icon-180.png">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1B4D33">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -228,13 +228,26 @@ button, input, select{ font-family:inherit; color:inherit; }
     }
   }
 
-  async function loadState(){
+  async function loadState(attempt){
+    attempt = attempt || 0;
     var t = await sb.from('tasks').select('*').order('created_at');
     var c = await sb.from('completions').select('*');
     var bd = await sb.from('birthdays').select('*').order('created_at');
     var bc = await sb.from('birthday_completions').select('*');
     if (t.error || c.error || bd.error || bc.error){
-      app.innerHTML = '<div class="setup"><h2>Kunde inte hämta data</h2><p>' + ((t.error && t.error.message) || (c.error && c.error.message) || (bd.error && bd.error.message) || (bc.error && bc.error.message)) + '</p></div>';
+      var errMsg = (t.error && t.error.message) || (c.error && c.error.message) || (bd.error && bd.error.message) || (bc.error && bc.error.message);
+      // "JWT issued at future" = tillfälligt klockfel mellan Supabase-servrarna. Vänta en stund och försök igen.
+      if (/issued at future/i.test(errMsg || '') && attempt < 5){
+        await new Promise(function(r){ setTimeout(r, 1500); });
+        return loadState(attempt + 1);
+      }
+      app.innerHTML = '';
+      var box = el('div', { class:'setup' }, [
+        el('h2', { text:'Kunde inte hämta data' }),
+        el('p', { text:errMsg }),
+        el('button', { class:'btn primary', onclick:function(){ app.innerHTML = '<div class="setup">Laddar…</div>'; loadState(0); } }, [document.createTextNode('Försök igen')])
+      ]);
+      app.appendChild(box);
       return;
     }
     state.birthdays = bd.data.map(function(x){ return { id:x.id, name:x.name, month:x.month, day:x.day, year:x.birth_year }; });
